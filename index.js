@@ -3,7 +3,15 @@ const fs = require('fs');
 const path = require('path');
 const cheerio = require('cheerio');
 const TurndownService = require('turndown');
-const turndownService = new TurndownService();
+const toc = require('markdown-toc');
+
+const options = {
+    codeBlockStyle: 'fenced',
+    fence: '```',
+    headingStyle: 'atx'
+};
+
+const turndownService = new TurndownService(options);
 const turndownPluginGfm = require('turndown-plugin-gfm');
 
 // Import plugins from turndown-plugin-gfm
@@ -258,6 +266,14 @@ function downloadPage(page) {
     });
 }
 
+function fixPres($, element) {
+    element.find('pre').each((i, elem) => {
+        if ($(elem).attr('class') === 'syntaxhighlighter-pre') {
+            $(elem).html(`<code>${$(elem).html()}</code>`);
+        }
+    });
+}
+
 function fixLinks($, element, page) {
     const depPages = [];
 
@@ -323,12 +339,20 @@ function savePageAsMarkdown(page) {
             // Don't include grand-children pages.
             $('#main-content>.childpages-macro>li>ul').remove();
             const mainContent = $('#main-content');
+            fixPres($, mainContent);
             fixLinks($, mainContent, page);
             fixImages($, mainContent, page);
 
             const mainContentHtml = mainContent.html();
 
             let markdown = turndownService.turndown(mainContentHtml);
+
+            // Add Table of Content, if the html page contains TOC macro
+            if (mainContent.find('div>.toc-macro').length > 0) {
+                const tocContent = toc(markdown).content;
+                markdown = `${tocContent}\r\n\r\n${markdown}`;
+            }
+
             markdown = `${generateFrontMatter(title, author)}\r\n\r\n# ${title}\r\n\r\n${markdown}`;
             let mdPath = path.join(page.localFolder, page.safeName + '.md');
             fs.writeFileSync(mdPath, markdown);
@@ -390,8 +414,8 @@ async function retrievePagesRecursively() {
     for (let i = 0; i < pages.length; i++) {
         let download = downloadPage(pages[i])
             .then(downloadAttachments)
-            .then(savePageAsMarkdown);
-            //.then(removeLocalHtmlPage);
+            .then(savePageAsMarkdown)
+            .then(removeLocalHtmlPage);
         downloadPromises.push(download);
     }
 }
